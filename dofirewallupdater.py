@@ -19,18 +19,27 @@ last_ip_filename = args.known_ip_filepath
 do_firewall_endpoint = "https://api.digitalocean.com/v2/firewalls/{0}"
 do_headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer {0}'.format(do_api_token)}
 
-public_ip_provider = "https://ifconfig.co/ip"
-public_ip = requests.get(public_ip_provider).content.strip('\n')
+public_ip_provider = "https://ifconfig.co/json"
+public_ip_result = requests.get(public_ip_provider)
+public_ip = ''
+
+if public_ip_result.status_code == 200:
+    public_ip_json = public_ip_result.json()
+    public_ip = public_ip_json['ip']
+else:
+    print('Could not determine public IP address')
+    print(public_ip_result.content)
+    exit(1)
+
 
 last_known_ip = ''
 if os.path.isfile(last_ip_filename):
-    last_ip_file = file(last_ip_filename, 'r')
-    last_known_ip = last_ip_file.read()
-    last_ip_file.close()
+    with open(last_ip_filename, 'r') as last_ip_file:
+        last_known_ip = last_ip_file.read()
 else:
     print('Creating file {0} for storing last known IP address'.format(last_ip_filename))
-    last_ip_file = file(last_ip_filename, 'w+')
-    last_ip_file.close()
+    with open(last_ip_filename, 'w+') as last_ip_file:
+        last_ip_file.close()
 
 if public_ip != last_known_ip:
     print('Updating firewall IP address as {0} (existing) is not equal to {1} (current)'.format(last_known_ip,
@@ -70,17 +79,18 @@ if public_ip != last_known_ip:
                                       headers=do_headers)
 
         if update_request.status_code == 200:
-            last_ip_file = file(last_ip_filename, 'w')
-            last_ip_file.write(public_ip)
-            last_ip_file.close()
+            with open(last_ip_filename, 'w') as last_ip_file:
+                last_ip_file.write(public_ip)
             print('Firewall rules and last known IP address updated')
         else:
             print('Firewall could not be updated')
             print(update_request.content)
+            exit(1)
 
     else:
         print('Could not get existing firewall')
         print(existing_rules_request.content)
+        exit(1)
 
 else:
     print('Nothing to update {0} is the existing IP address'.format(last_known_ip))
