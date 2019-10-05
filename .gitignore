@@ -195,3 +195,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Prevent committing the ip address
+/dofw_last_ipaddr
