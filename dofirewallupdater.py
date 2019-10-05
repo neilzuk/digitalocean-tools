@@ -35,7 +35,7 @@ else:
 last_known_ip = ''
 if os.path.isfile(last_ip_filename):
     with open(last_ip_filename, 'r') as last_ip_file:
-        last_known_ip = last_ip_file.read()
+        last_known_ip = last_ip_file.read().strip('\n')
 else:
     print('Creating file {0} for storing last known IP address'.format(last_ip_filename))
     with open(last_ip_filename, 'w+') as last_ip_file:
