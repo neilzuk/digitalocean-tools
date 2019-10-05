@@ -37,41 +37,50 @@ if public_ip != last_known_ip:
                                                                                                 public_ip))
     existing_rules_request = requests.get(do_firewall_endpoint.format(do_firewall_id),
                                           headers=do_headers)
-    existing_rules_json = existing_rules_request.json()
-    existing_rules = existing_rules_json['firewall']
-    updated_firewall = {'name': existing_rules['name'], 'inbound_rules': existing_rules['inbound_rules'],
-                        'outbound_rules': existing_rules['outbound_rules'],
-                        'droplet_ids': existing_rules['droplet_ids'],
-                        'tags': existing_rules['tags']}
 
-    for irx, inbound_rule in enumerate(updated_firewall['inbound_rules']):
-        if inbound_rule['protocol'] == 'icmp':
-            del updated_firewall['inbound_rules'][irx]['ports']
-        elif inbound_rule['ports'] == '0':
-            updated_firewall['inbound_rules'][irx]['ports'] = 'all'
-        for iax, address in enumerate(inbound_rule['sources']['addresses']):
-            if address == last_known_ip:
-                updated_firewall['inbound_rules'][irx]['sources']['addresses'][iax] = public_ip
+    if existing_rules_request.status_code == 200:
+        existing_rules_json = existing_rules_request.json()
+        existing_rules = existing_rules_json['firewall']
+        updated_firewall = {'name': existing_rules['name'], 'inbound_rules': existing_rules['inbound_rules'],
+                            'outbound_rules': existing_rules['outbound_rules'],
+                            'droplet_ids': existing_rules['droplet_ids'],
+                            'tags': existing_rules['tags']}
 
-    for orx, outbound_rule in enumerate(updated_firewall['outbound_rules']):
-        if outbound_rule['protocol'] == 'icmp':
-            del updated_firewall['outbound_rules'][orx]['ports']
-        elif outbound_rule['ports'] == '0':
-            updated_firewall['outbound_rules'][orx]['ports'] = 'all'
-        for oax, address in enumerate(outbound_rule['destinations']['addresses']):
-            if address == last_known_ip:
-                updated_firewall['outbound_rules'][orx]['destinations']['addresses'][oax] = public_ip
+        for irx, inbound_rule in enumerate(updated_firewall['inbound_rules']):
+            if inbound_rule['protocol'] == 'icmp':
+                del updated_firewall['inbound_rules'][irx]['ports']
+            elif inbound_rule['ports'] == '0':
+                updated_firewall['inbound_rules'][irx]['ports'] = 'all'
+            for iax, address in enumerate(inbound_rule['sources']['addresses']):
+                if address == last_known_ip:
+                    updated_firewall['inbound_rules'][irx]['sources']['addresses'][iax] = public_ip
 
-    updated_firewall_json = json.dumps(updated_firewall)
+        for orx, outbound_rule in enumerate(updated_firewall['outbound_rules']):
+            if outbound_rule['protocol'] == 'icmp':
+                del updated_firewall['outbound_rules'][orx]['ports']
+            elif outbound_rule['ports'] == '0':
+                updated_firewall['outbound_rules'][orx]['ports'] = 'all'
+            for oax, address in enumerate(outbound_rule['destinations']['addresses']):
+                if address == last_known_ip:
+                    updated_firewall['outbound_rules'][orx]['destinations']['addresses'][oax] = public_ip
 
-    update_request = requests.put(do_firewall_endpoint.format(do_firewall_id), updated_firewall_json,
-                                  headers=do_headers)
+        updated_firewall_json = json.dumps(updated_firewall)
 
-    if update_request.status_code == 200:
-        last_ip_file = file(last_ip_filename, 'w')
-        last_ip_file.write(public_ip)
-        last_ip_file.close()
-        print('Firewall rules and last known IP address updated')
+        update_request = requests.put(do_firewall_endpoint.format(do_firewall_id), updated_firewall_json,
+                                      headers=do_headers)
+
+        if update_request.status_code == 200:
+            last_ip_file = file(last_ip_filename, 'w')
+            last_ip_file.write(public_ip)
+            last_ip_file.close()
+            print('Firewall rules and last known IP address updated')
+        else:
+            print('Firewall could not be updated')
+            print(update_request.content)
+
+    else:
+        print('Could not get existing firewall')
+        print(existing_rules_request.content)
 
 else:
     print('Nothing to update {0} is the existing IP address'.format(last_known_ip))

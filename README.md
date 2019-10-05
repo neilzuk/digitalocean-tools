@@ -8,8 +8,8 @@ This Python script was created to update my Digital Ocean firewall rules when IS
  
  ## Requirements
  * **Note:** Your firewall must already be setup with your existing public IP address
- * Python 2.7+  
- * Install the **requests** library using `pip install requests` from your command line
+ * Python 3  
+ * Install the **requests** library using `pip3 install requests` from your command line
  
  ## Usage
  ```
@@ -32,5 +32,5 @@ optional arguments:
 ### Automatic updates using crontab 
 To run the updater every 5 minutes add the following to your crontab with your own Firewall ID and API token 
 ```
-*/5 * * * * python /home/pi/digitalocean/dofirewallupdater.py --firewall-id XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX --api-token XXXXXXXXXXXXX 2>/dev/null
+*/5 * * * * python3 /home/pi/digitalocean/dofirewallupdater.py --firewall-id XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX --api-token XXXXXXXXXXXXX 2>/dev/null
 ```
