@@ -197,3 +197,4 @@ dmypy.json
 
 # Prevent committing the ip address
 /dofw_last_ipaddr
+/config.json
