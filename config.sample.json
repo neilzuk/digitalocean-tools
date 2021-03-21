@@ -1,0 +1,8 @@
+{
+  "endpoints": [
+    {
+      "host": "DDNS Hostname here",
+      "lastIP": "Your current external IP address"
+    }
+  ]
+}

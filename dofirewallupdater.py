@@ -1,96 +1,86 @@
 import argparse
 import requests
 import json
-import os.path
+import socket
+import datetime as dt
 
 parser = argparse.ArgumentParser(description='Update Digital Ocean firewall IP address with your public IP')
 parser.add_argument('--firewall-id', help='Digital Ocean Firewall ID', required=True)
 parser.add_argument('--api-token', help='Digital Ocean API Token with write permission', required=True)
-parser.add_argument('--known-ip-filepath', help='File path to the file storing the known IP address in '
-                                                '(default: dofw_last_ipaddr)',
-                    default='dofw_last_ipaddr')
+parser.add_argument('--config', help='File path to the file storing the config'
+                                     '(default: config.json)',
+                    default='config.json')
 args = parser.parse_args()
+
+config_filename = args.config
 
 do_api_token = args.api_token
 do_firewall_id = args.firewall_id
-
-last_ip_filename = args.known_ip_filepath
-
 do_firewall_endpoint = "https://api.digitalocean.com/v2/firewalls/{0}"
 do_headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer {0}'.format(do_api_token)}
 
-public_ip_provider = "https://ifconfig.co/json"
-public_ip_result = requests.get(public_ip_provider)
-public_ip = ''
+with open(config_filename, 'r+') as config_json_file:
+    config_data = json.load(config_json_file)
+    old_to_new_ip_map = {}
+    for endpoint in config_data['endpoints']:
+        last_endpoint_ip = endpoint['lastIP']
+        resolved_endpoint_ip = socket.gethostbyname(endpoint['host'])
+        if last_endpoint_ip != resolved_endpoint_ip:
+            print("Host: {0} was '{1}' is now '{2}'".format(endpoint['host'], last_endpoint_ip, resolved_endpoint_ip))
+            old_to_new_ip_map[last_endpoint_ip] = resolved_endpoint_ip
+            endpoint['lastIP'] = resolved_endpoint_ip
+            endpoint['lastUpdated'] = dt.datetime.now(dt.timezone.utc).isoformat()
 
-if public_ip_result.status_code == 200:
-    public_ip_json = public_ip_result.json()
-    public_ip = public_ip_json['ip']
-else:
-    print('Could not determine public IP address')
-    print(public_ip_result.content)
-    exit(1)
+    if len(old_to_new_ip_map) > 0:
+        print("Firewall update is required...fetching existing rules from provider")
+        existing_rules_request = requests.get(do_firewall_endpoint.format(do_firewall_id),
+                                              headers=do_headers)
 
+        if existing_rules_request.status_code == 200:
+            existing_rules_json = existing_rules_request.json()
+            existing_rules = existing_rules_json['firewall']
+            updated_firewall = {'name': existing_rules['name'], 'inbound_rules': existing_rules['inbound_rules'],
+                                'outbound_rules': existing_rules['outbound_rules'],
+                                'droplet_ids': existing_rules['droplet_ids'],
+                                'tags': existing_rules['tags']}
 
-last_known_ip = ''
-if os.path.isfile(last_ip_filename):
-    with open(last_ip_filename, 'r') as last_ip_file:
-        last_known_ip = last_ip_file.read().strip('\n')
-else:
-    print('Creating file {0} for storing last known IP address'.format(last_ip_filename))
-    with open(last_ip_filename, 'w+') as last_ip_file:
-        last_ip_file.close()
+            for irx, inbound_rule in enumerate(updated_firewall['inbound_rules']):
+                if inbound_rule['protocol'] == 'icmp':
+                    del updated_firewall['inbound_rules'][irx]['ports']
+                elif inbound_rule['ports'] == '0':
+                    updated_firewall['inbound_rules'][irx]['ports'] = 'all'
+                for iax, address in enumerate(inbound_rule['sources']['addresses']):
+                    if new_ip := old_to_new_ip_map.get(address):
+                        updated_firewall['inbound_rules'][irx]['sources']['addresses'][iax] = new_ip
 
-if public_ip != last_known_ip:
-    print('Updating firewall IP address as {0} (existing) is not equal to {1} (current)'.format(last_known_ip,
-                                                                                                public_ip))
-    existing_rules_request = requests.get(do_firewall_endpoint.format(do_firewall_id),
+            for orx, outbound_rule in enumerate(updated_firewall['outbound_rules']):
+                if outbound_rule['protocol'] == 'icmp':
+                    del updated_firewall['outbound_rules'][orx]['ports']
+                elif outbound_rule['ports'] == '0':
+                    updated_firewall['outbound_rules'][orx]['ports'] = 'all'
+                for oax, address in enumerate(outbound_rule['destinations']['addresses']):
+                    if new_ip := old_to_new_ip_map.get(address):
+                        updated_firewall['outbound_rules'][orx]['destinations']['addresses'][oax] = new_ip
+
+            updated_firewall_json = json.dumps(updated_firewall)
+
+            update_request = requests.put(do_firewall_endpoint.format(do_firewall_id), updated_firewall_json,
                                           headers=do_headers)
 
-    if existing_rules_request.status_code == 200:
-        existing_rules_json = existing_rules_request.json()
-        existing_rules = existing_rules_json['firewall']
-        updated_firewall = {'name': existing_rules['name'], 'inbound_rules': existing_rules['inbound_rules'],
-                            'outbound_rules': existing_rules['outbound_rules'],
-                            'droplet_ids': existing_rules['droplet_ids'],
-                            'tags': existing_rules['tags']}
-
-        for irx, inbound_rule in enumerate(updated_firewall['inbound_rules']):
-            if inbound_rule['protocol'] == 'icmp':
-                del updated_firewall['inbound_rules'][irx]['ports']
-            elif inbound_rule['ports'] == '0':
-                updated_firewall['inbound_rules'][irx]['ports'] = 'all'
-            for iax, address in enumerate(inbound_rule['sources']['addresses']):
-                if address == last_known_ip:
-                    updated_firewall['inbound_rules'][irx]['sources']['addresses'][iax] = public_ip
-
-        for orx, outbound_rule in enumerate(updated_firewall['outbound_rules']):
-            if outbound_rule['protocol'] == 'icmp':
-                del updated_firewall['outbound_rules'][orx]['ports']
-            elif outbound_rule['ports'] == '0':
-                updated_firewall['outbound_rules'][orx]['ports'] = 'all'
-            for oax, address in enumerate(outbound_rule['destinations']['addresses']):
-                if address == last_known_ip:
-                    updated_firewall['outbound_rules'][orx]['destinations']['addresses'][oax] = public_ip
-
-        updated_firewall_json = json.dumps(updated_firewall)
-
-        update_request = requests.put(do_firewall_endpoint.format(do_firewall_id), updated_firewall_json,
-                                      headers=do_headers)
-
-        if update_request.status_code == 200:
-            with open(last_ip_filename, 'w') as last_ip_file:
-                last_ip_file.write(public_ip)
-            print('Firewall rules and last known IP address updated')
+            if update_request.status_code == 200:
+                print('Firewall rules updated')
+                config_json_file.seek(0)
+                json.dump(config_data, config_json_file, indent=2)
+                config_json_file.truncate()
+                print('Config file updated')
+            else:
+                print('Firewall could not be updated')
+                print(update_request.content)
+                exit(1)
         else:
-            print('Firewall could not be updated')
-            print(update_request.content)
+            print('Could not get existing firewall')
+            print(existing_rules_request.content)
             exit(1)
-
     else:
-        print('Could not get existing firewall')
-        print(existing_rules_request.content)
-        exit(1)
-
-else:
-    print('Nothing to update {0} is the existing IP address'.format(last_known_ip))
+        print("No firewall updates required.")
+        exit(0)
